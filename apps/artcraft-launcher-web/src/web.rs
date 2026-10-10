@@ -6,14 +6,68 @@ use std::rc::Rc;
 use artcraft_launcher_core::protocol::{Backend, Capabilities, Command, Event, LatestRelease, Origin, Source};
 use artcraft_launcher_core::release::{self, Release};
 use artcraft_launcher_core::{Arch, Os, Platform, SUITE, catalog, version};
-use artcraft_launcher_ui_egui::{Host, LauncherUi, Settings};
+use artcraft_launcher_ui_egui::{Host, LauncherUi, Settings, i18n};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
 const SETTINGS_KEY: &str = "settings";
 
+/// Tell the UI the browser's languages (`?lang=ru` in the address first, as `ARTCRAFT_LAUNCHER_LOCALE`
+/// does on the desktop) before the first frame, so the Automatic interface language follows the
+/// browser; and show the loading text in that language.
+fn detect_language() {
+    let window = match web_sys::window() {
+        Some(w) => w,
+        None => return,
+    };
+    let document = match window.document() {
+        Some(d) => d,
+        None => return,
+    };
+    let mut tags = Vec::new();
+
+    // ?lang=xx in the URL takes priority.
+    if let Ok(href) = window.location().href()
+        && let Some(idx) = href.find('?')
+    {
+        for pair in href[idx + 1..].split('&') {
+            if let Some((k, v)) = pair.split_once('=')
+                && k == "lang"
+                && !v.is_empty()
+            {
+                tags.push(v.to_string());
+            }
+        }
+    }
+
+    // Then the browser's preferred languages.
+    let navigator = window.navigator();
+    let langs: js_sys::Array = navigator.languages();
+    for i in 0..langs.length() {
+        if let Some(v) = langs.get(i).as_string() {
+            tags.push(v);
+        }
+    }
+    if let Some(lang) = navigator.language() {
+        tags.push(lang);
+    }
+    i18n::set_system_locales(&tags);
+
+    // Screen readers and spell-check follow the page language: match <html lang>
+    // to what was detected (`en` when the browser asks for nothing supported).
+    if let Some(root) = document.document_element() {
+        let _ = root.set_attribute("lang", i18n::system_lang().code());
+    }
+
+    // Update loading text in the detected language.
+    if let Some(el) = document.get_element_by_id("launcher_loading") {
+        el.set_text_content(Some(i18n::tr(i18n::system_lang(), "Loading ArtCraft Launcher…")));
+    }
+}
 pub fn start() {
     eframe::WebLogger::init(log::LevelFilter::Warn).ok();
+    // Detect language before starting the UI.
+    detect_language();
     wasm_bindgen_futures::spawn_local(async {
         let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
         let Some(canvas) = document.get_element_by_id("launcher_canvas").and_then(|c| c.dyn_into::<web_sys::HtmlCanvasElement>().ok()) else {

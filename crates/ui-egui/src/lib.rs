@@ -8,8 +8,17 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+/// Translate an English UI string into the current language (see [`i18n`]).
+#[macro_export]
+macro_rules! tl {
+    ($s:literal) => {
+        $crate::i18n::t($s)
+    };
+}
+
 mod app;
 mod dialogs;
+pub mod i18n;
 pub mod icons;
 pub mod model;
 mod notes;
@@ -19,4 +28,8 @@ mod views;
 mod widgets;
 
 pub use app::{Host, LauncherUi, TitleBar};
+pub use i18n::{
+    Lang, LangInfo, current, detect_system_lang_in_background, fmt, has, lang_from_tag, message, msg, set_current, set_system_locales, system_lang,
+    t, t_id, tn, tr, tr_ctx, tr_id, trn,
+};
 pub use settings::Settings;

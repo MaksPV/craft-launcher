@@ -1,11 +1,12 @@
 //! Modal dialogs: release notes, uninstall confirmation, settings.
 
+use crate::i18n::fmt;
 use artcraft_launcher_core::protocol::Command;
-use artcraft_launcher_core::{Os, PackageKind, time};
+use artcraft_launcher_core::{Os, PackageKind};
 use egui::{RichText, vec2};
 
 use crate::app::{Dialog, Host, LauncherUi};
-use crate::settings::CheckEvery;
+use crate::settings::{CheckEvery, Settings};
 use crate::theme::{self, ThemeChoice, Tokens};
 use crate::widgets::{self, Cell, Kind};
 
@@ -45,9 +46,9 @@ impl LauncherUi {
             });
             ui.add_space(14.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ok = widgets::button(ui, "OK", Kind::Primary, 90.0).clicked();
+                ok = widgets::button(ui, tl!("OK"), Kind::Primary, 90.0).clicked();
                 if let Some(link) = &alert.link
-                    && widgets::button(ui, "Open link", Kind::Secondary, 110.0).on_hover_text(link.as_str()).clicked()
+                    && widgets::button(ui, tl!("Open link"), Kind::Secondary, 110.0).on_hover_text(link.as_str()).clicked()
                 {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(link.clone()));
                 }
@@ -81,11 +82,11 @@ impl LauncherUi {
         let Some(entry) = self.entry(id).cloned() else { return true };
         let Some(release) = entry.release().cloned() else { return true };
         ui.set_width(560.0f32.min(ui.ctx().content_rect().width() - 80.0));
-        let date = release.published_at.map(|d| format!("Released {}", time::format_date(d))).unwrap_or_default();
+        let date = release.published_at.map(|d| fmt(tl!("Released {date}"), &[("date", &crate::views::date_text(d))])).unwrap_or_default();
         Self::title(ui, crate::icons::app(id), &format!("{} {}", entry.app.name, release.version_label()), &date);
         egui::ScrollArea::vertical().max_height(ui.ctx().content_rect().height() * 0.6).show(ui, |ui| {
             if release.notes.is_empty() {
-                ui.label("These notes weren't fetched (GitHub's request limit was reached). They're on the release page.");
+                ui.label(tl!("These notes weren't fetched (GitHub's request limit was reached). They're on the release page."));
             } else {
                 crate::notes::show(ui, &release.notes);
             }
@@ -93,9 +94,9 @@ impl LauncherUi {
         ui.add_space(12.0);
         let mut close = false;
         ui.horizontal(|ui| {
-            widgets::hud_link(ui, "Open on GitHub", &release.html_url);
+            widgets::hud_link(ui, tl!("Open on GitHub"), &release.html_url);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                close = widgets::button(ui, "Close", Kind::Secondary, 90.0).clicked();
+                close = widgets::button(ui, tl!("Close"), Kind::Secondary, 90.0).clicked();
             });
         });
         close
@@ -105,28 +106,28 @@ impl LauncherUi {
         let Some(entry) = self.entry(id).cloned() else { return true };
         let t = Tokens::get(ui.ctx());
         ui.set_width(420.0);
-        Self::title(ui, crate::icons::app(id), &format!("Uninstall {}?", entry.app.name), "");
+        Self::title(ui, crate::icons::app(id), &fmt(tl!("Uninstall {name}?"), &[("name", entry.app.name)]), "");
         let how = match entry.installed.as_ref().map(|i| i.source) {
-            Some(artcraft_launcher_core::InstallSource::MacApp) => "The app will be moved to the Trash. Your documents and settings stay.",
+            Some(artcraft_launcher_core::InstallSource::MacApp) => tl!("The app will be moved to the Trash. Your documents and settings stay."),
             Some(artcraft_launcher_core::InstallSource::Msi) => {
-                "Windows will remove it like any installed program. Your documents and settings stay."
+                tl!("Windows will remove it like any installed program. Your documents and settings stay.")
             }
             Some(
                 artcraft_launcher_core::InstallSource::Deb
                 | artcraft_launcher_core::InstallSource::Rpm
                 | artcraft_launcher_core::InstallSource::Pacman,
-            ) => "Your system's package manager will remove it, and may ask for your password. Your documents and settings stay.",
-            _ => "The app will be removed. Your documents and settings stay.",
+            ) => tl!("Your system's package manager will remove it, and may ask for your password. Your documents and settings stay."),
+            _ => tl!("The app will be removed. Your documents and settings stay."),
         };
         ui.label(RichText::new(how).color(t.muted));
         ui.add_space(20.0);
         let mut close = false;
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if widgets::button(ui, "Uninstall", Kind::Danger, 110.0).clicked() {
+            if widgets::button(ui, tl!("Uninstall"), Kind::Danger, 110.0).clicked() {
                 self.send(Command::Uninstall { app: id.to_string() });
                 close = true;
             }
-            if widgets::button(ui, "Cancel", Kind::Secondary, 90.0).clicked() {
+            if widgets::button(ui, tl!("Cancel"), Kind::Secondary, 90.0).clicked() {
                 close = true;
             }
         });
@@ -137,7 +138,7 @@ impl LauncherUi {
         let t = Tokens::get(ui.ctx());
         // Wide enough for the community buttons and every social icon on one row.
         ui.set_width(520.0);
-        Self::title(ui, Some(crate::icons::artcraft_mark()), "Settings", &format!("ArtCraft Launcher {}", env!("CARGO_PKG_VERSION")));
+        Self::title(ui, Some(crate::icons::artcraft_mark()), tl!("Settings"), &format!("ArtCraft Launcher {}", env!("CARGO_PKG_VERSION")));
         let section = |ui: &mut egui::Ui, s: &str| {
             ui.add_space(14.0);
             widgets::hud(ui, s, t.faint);
@@ -150,9 +151,23 @@ impl LauncherUi {
             });
         };
 
-        section(ui, "Updates");
+        let mut lang_code = self.settings.language.clone();
+        row(ui, tl!("Language"), &mut |ui| {
+            egui::ComboBox::from_id_salt("language").selected_text(Settings::language_label(&lang_code)).width(180.0).show_ui(ui, |ui| {
+                ui.selectable_value(&mut lang_code, Settings::LANGUAGE_AUTO.to_string(), tl!("Auto"));
+                for lang in crate::i18n::Lang::all() {
+                    ui.selectable_value(&mut lang_code, lang.code().to_string(), lang.name());
+                }
+            });
+        });
+        if lang_code != self.settings.language {
+            self.settings.language = lang_code;
+            crate::i18n::set_current(crate::i18n::Lang::from_pref(&self.settings.language));
+        }
+
+        section(ui, tl!("Updates"));
         let mut every = self.settings.check_every;
-        row(ui, "Check for updates", &mut |ui| {
+        row(ui, tl!("Check for updates"), &mut |ui| {
             egui::ComboBox::from_id_salt("every").selected_text(every.label()).width(150.0).show_ui(ui, |ui| {
                 for e in CheckEvery::ALL {
                     ui.selectable_value(&mut every, e, e.label());
@@ -160,55 +175,55 @@ impl LauncherUi {
             });
         });
         self.settings.check_every = every;
-        ui.checkbox(&mut self.settings.notify, "Notify me when an installed app has an update");
-        ui.checkbox(&mut self.settings.prereleases, "Include pre-releases (betas and release candidates)");
+        ui.checkbox(&mut self.settings.notify, tl!("Notify me when an installed app has an update"));
+        ui.checkbox(&mut self.settings.prereleases, tl!("Include pre-releases (betas and release candidates)"));
 
         if self.caps.manage_apps && self.platform.is_some_and(|p| p.os == Os::Linux) {
-            section(ui, "Installing on Linux");
+            section(ui, tl!("Installing on Linux"));
             let mut choice = self.settings.preferred_kinds.first().copied();
-            row(ui, "Install new apps as", &mut |ui| {
-                let label = choice.map_or("System package (recommended)", PackageKind::label);
+            row(ui, tl!("Install new apps as"), &mut |ui| {
+                let label = choice.map_or(tl!("System package (recommended)"), |k| crate::i18n::t(k.label()));
                 egui::ComboBox::from_id_salt("kind").selected_text(label).width(210.0).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut choice, None, "System package (recommended)");
+                    ui.selectable_value(&mut choice, None, tl!("System package (recommended)"));
                     for k in [PackageKind::Deb, PackageKind::Rpm, PackageKind::Flatpak, PackageKind::AppImage] {
-                        ui.selectable_value(&mut choice, Some(k), k.label());
+                        ui.selectable_value(&mut choice, Some(k), crate::i18n::t(k.label()));
                     }
                 });
             });
             self.settings.preferred_kinds = choice.into_iter().collect();
-            ui.label(RichText::new("Updates always use the format an app was installed with.").size(12.0).color(t.muted));
+            ui.label(RichText::new(tl!("Updates always use the format an app was installed with.")).size(12.0).color(t.muted));
         }
 
         if self.caps.manage_apps {
-            section(ui, "Running in the background");
+            section(ui, tl!("Running in the background"));
             if host.has_tray() {
-                ui.checkbox(&mut self.settings.close_to_tray, "Keep running in the tray when the window is closed");
+                ui.checkbox(&mut self.settings.close_to_tray, tl!("Keep running in the tray when the window is closed"));
             }
             if host.has_desktops() {
-                ui.checkbox(&mut self.settings.show_on_current_desktop, "Show the window on the current desktop")
-                    .on_hover_text("When on, opening the launcher from the menu bar brings its window to the desktop you're on. When off, macOS switches you to the desktop the window was on.");
+                ui.checkbox(&mut self.settings.show_on_current_desktop, tl!("Show the window on the current desktop"))
+                    .on_hover_text(tl!("When on, opening the launcher from the menu bar brings its window to the desktop you're on. When off, macOS switches you to the desktop the window was on."));
             }
             if let Some(mut on) = host.login_item()
-                && ui.checkbox(&mut on, "Start ArtCraft Launcher when I log in").changed()
+                && ui.checkbox(&mut on, tl!("Start ArtCraft Launcher when I log in")).changed()
                 && let Err(e) = host.set_login_item(on)
             {
                 let ctx = ui.ctx().clone();
-                self.toast(&ctx, format!("Couldn't change the login item: {e}"), true);
+                self.toast(&ctx, fmt(tl!("Couldn't change the login item: {e}"), &[("e", &e)]), true);
             }
         }
 
-        section(ui, "Community");
-        ui.label(RichText::new("Questions, ideas and news from the ArtCraft team").color(t.muted));
+        section(ui, tl!("Community"));
+        ui.label(RichText::new(tl!("Questions, ideas and news from the ArtCraft team")).color(t.muted));
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             use artcraft_launcher_core::catalog::{DISCORD_URL, GITHUB_URL, WEBSITE_URL};
-            if widgets::button(ui, "Join the Discord", Kind::Primary, 0.0).on_hover_text(DISCORD_URL).clicked() {
+            if widgets::button(ui, tl!("Join the Discord"), Kind::Primary, 0.0).on_hover_text(DISCORD_URL).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(DISCORD_URL));
             }
-            if widgets::button(ui, "Website", Kind::Secondary, 0.0).on_hover_text(WEBSITE_URL).clicked() {
+            if widgets::button(ui, tl!("Website"), Kind::Secondary, 0.0).on_hover_text(WEBSITE_URL).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(WEBSITE_URL));
             }
-            if widgets::button(ui, "GitHub", Kind::Secondary, 0.0).on_hover_text(GITHUB_URL).clicked() {
+            if widgets::button(ui, tl!("GitHub"), Kind::Secondary, 0.0).on_hover_text(GITHUB_URL).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(GITHUB_URL));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -217,7 +232,7 @@ impl LauncherUi {
             });
         });
 
-        section(ui, "Appearance");
+        section(ui, tl!("Appearance"));
         let mut theme_choice = self.settings.theme;
         ui.horizontal(|ui| {
             widgets::cells(ui, &mut theme_choice, &ThemeChoice::ALL.map(|c| (c, Cell { label: c.label(), tip: c.label(), count: None })));
@@ -227,11 +242,11 @@ impl LauncherUi {
         ui.add_space(24.0);
         let mut close = false;
         ui.horizontal(|ui| {
-            if self.caps.manage_apps && widgets::button(ui, "Quit ArtCraft Launcher", Kind::Secondary, 0.0).clicked() {
+            if self.caps.manage_apps && widgets::button(ui, tl!("Quit ArtCraft Launcher"), Kind::Secondary, 0.0).clicked() {
                 host.quit();
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                close = widgets::button(ui, "Done", Kind::Primary, 90.0).clicked();
+                close = widgets::button(ui, tl!("Done"), Kind::Primary, 90.0).clicked();
             });
         });
         close

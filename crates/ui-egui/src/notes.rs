@@ -37,7 +37,7 @@ pub(crate) fn classify(line: &str) -> Line<'_> {
 pub(crate) fn show(ui: &mut Ui, notes: &str) {
     let t = Tokens::get(ui.ctx());
     if notes.trim().is_empty() {
-        ui.label(RichText::new("No notes were published with this release.").color(t.muted));
+        ui.label(RichText::new(tl!("No notes were published with this release.")).color(t.muted));
         return;
     }
     for line in notes.lines() {
@@ -52,7 +52,7 @@ pub(crate) fn show(ui: &mut Ui, notes: &str) {
                     ui.label(RichText::new("•").color(t.faint));
                     ui.label(RichText::new(text).color(t.ink));
                     if let Some(url) = link {
-                        let short = url.rsplit('/').next().map_or_else(|| "link".to_string(), |n| format!("#{n}"));
+                        let short = url.rsplit('/').next().map_or_else(|| tl!("link").to_string(), |n| format!("#{n}"));
                         ui.hyperlink_to(RichText::new(short).size(12.0), url);
                     }
                 });
@@ -60,7 +60,7 @@ pub(crate) fn show(ui: &mut Ui, notes: &str) {
             Line::Text(text) => {
                 if let Some(url) = text.strip_prefix("**Full Changelog**: ") {
                     ui.add_space(6.0);
-                    ui.hyperlink_to("Full changelog", url.trim());
+                    ui.hyperlink_to(tl!("Full changelog"), url.trim());
                 } else {
                     ui.label(RichText::new(text).color(t.muted));
                 }

@@ -20,11 +20,14 @@ pub enum ThemeChoice {
 impl ThemeChoice {
     pub const ALL: [Self; 3] = [Self::System, Self::Dark, Self::Light];
 
+    /// The English key translated at draw time into the current UI language
+    /// (the shell sets it per frame via `i18n::set_current`). Same-crate lookup,
+    /// pure and wasm-safe; no new dependency. Call sites stay unchanged.
     pub fn label(self) -> &'static str {
         match self {
-            Self::System => "Match system",
-            Self::Dark => "Dark",
-            Self::Light => "Light",
+            Self::System => crate::i18n::t("Match system"),
+            Self::Dark => crate::i18n::t("Dark"),
+            Self::Light => crate::i18n::t("Light"),
         }
     }
 }

@@ -2,6 +2,9 @@
 //!
 //! Every Craft App release names its files `<app>-<version>-<os>-<arch>[-portable].<ext>`, for
 //! example `photocraft-0.5.0-windows-x64.msi` or `photocraft-0.5.0-linux-aarch64.AppImage`.
+//!
+//! Labels are English. The UI translates [`PackageKind::label`]; OS and architecture names are
+//! shown as they are.
 
 use serde::{Deserialize, Serialize};
 

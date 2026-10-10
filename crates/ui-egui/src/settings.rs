@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use artcraft_launcher_core::PackageKind;
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::t;
 use crate::theme::ThemeChoice;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,10 +63,10 @@ impl CheckEvery {
     /// mean "automatically" too.
     pub const ALL: [Self; 2] = [Self::Hour, Self::Never];
 
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Hour | Self::FourHours | Self::Day => "Automatically",
-            Self::Never => "Only when I ask",
+            Self::Hour | Self::FourHours | Self::Day => t("Automatically").to_string(),
+            Self::Never => t("Only when I ask").to_string(),
         }
     }
 
@@ -87,6 +88,8 @@ pub struct Settings {
     pub sort: SortKey,
     pub sort_descending: bool,
     pub theme: ThemeChoice,
+    /// Interface language: `auto` (follow the system) or a language code from the registry.
+    pub language: String,
     /// Closing the window keeps the launcher in the tray (menu bar) instead of quitting.
     pub close_to_tray: bool,
     /// macOS: showing the window brings it to the current desktop (Space) instead of switching to
@@ -106,6 +109,18 @@ pub struct Settings {
     pub last_check: Option<i64>,
 }
 
+impl Settings {
+    /// Machine-readable code for "follow the system language".
+    pub const LANGUAGE_AUTO: &'static str = "auto";
+
+    /// Display name for a language `code`: a language's name in itself, from the registry
+    /// ([`LANGUAGES`](crate::i18n::LANGUAGES)), or "Auto" for `auto` and unknown codes, like
+    /// [`Lang::from_pref`](crate::i18n::Lang::from_pref).
+    pub fn language_label(code: &str) -> String {
+        crate::i18n::Lang::from_code(code).map_or_else(|| t("Auto").to_string(), |lang| lang.name().to_string())
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -114,6 +129,7 @@ impl Default for Settings {
             sort: SortKey::Suite,
             sort_descending: false,
             theme: ThemeChoice::System,
+            language: "auto".to_string(),
             close_to_tray: true,
             show_on_current_desktop: true,
             check_every: CheckEvery::Hour,

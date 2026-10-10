@@ -178,10 +178,10 @@ fn window_button(ui: &mut Ui, button: WindowButton, height: f32) -> Response {
     let c = rect.center();
     let stroke = Stroke::new(1.0, ink);
     let label = match button {
-        WindowButton::Minimize => "Minimize",
-        WindowButton::Maximize => "Maximize",
-        WindowButton::Restore => "Restore",
-        WindowButton::Close => "Close",
+        WindowButton::Minimize => tl!("Minimize"),
+        WindowButton::Maximize => tl!("Maximize"),
+        WindowButton::Restore => tl!("Restore"),
+        WindowButton::Close => tl!("Close"),
     };
     // Half the glyph's size: 10 px, like Windows' own caption buttons.
     let s = 5.0;
@@ -481,7 +481,7 @@ pub fn social_icons(ui: &mut Ui, size: f32) {
         let color = if resp.hovered() { t.ink_strong } else { t.faint };
         egui::Image::new(icon).tint(color).paint_at(ui, rect.shrink(pad));
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, true, *name));
-        let resp = resp.on_hover_text(format!("ArtCraft on {name}")).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let resp = resp.on_hover_text(crate::i18n::fmt(tl!("ArtCraft on {name}"), &[("name", name)])).on_hover_cursor(egui::CursorIcon::PointingHand);
         if resp.clicked() {
             ui.ctx().open_url(egui::OpenUrl::new_tab(*url));
         }

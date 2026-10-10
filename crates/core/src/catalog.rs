@@ -1,6 +1,9 @@
 //! The Craft App Suite: the twelve apps the launcher knows about.
 //!
 //! The list is data so a later version can fetch it from an API; [`SUITE`] is the built-in copy.
+//!
+//! Text here is English, the source the UI translates from: each `tagline` has a catalog row
+//! keyed by the app id (`tr_ctx(app.id, app.tagline)` in `ui-egui`).
 
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +32,7 @@ pub struct CraftApp {
     pub id: &'static str,
     /// Display name (`PhotoCraft`).
     pub name: &'static str,
-    /// What it's for, in a few words.
+    /// What it's for, in a few words (English; the UI translates it by app id).
     pub tagline: &'static str,
     /// The familiar app it reimplements, for orientation.
     pub like: &'static str,

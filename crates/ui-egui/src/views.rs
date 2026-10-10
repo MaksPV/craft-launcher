@@ -8,10 +8,34 @@ use artcraft_launcher_core::{AppGroup, SUITE, time};
 use egui::{Color32, CornerRadius, FontId, Rect, RichText, Sense, Stroke, Ui, vec2};
 
 use crate::app::{Dialog, LauncherUi, TitleBar};
+use crate::i18n::{current, fmt, t, tn, tr_ctx};
 use crate::model::{self, AppEntry};
 use crate::settings::{Filter, SortKey, ViewMode};
 use crate::theme::{self, Tokens, rgb, tint};
 use crate::widgets::{self, Cell, Kind};
+
+/// Translate a relative timestamp ("just now", "5 min ago", …) into the current language.
+fn ago_text(secs: i64, now: i64) -> String {
+    match time::ago_kind(secs, now) {
+        time::TimeAgo::JustNow => t("just now").to_string(),
+        time::TimeAgo::Minutes(n) => tn(n, "{n} min ago", "{n} min ago"),
+        time::TimeAgo::Hours(n) => tn(n, "{n} h ago", "{n} h ago"),
+        time::TimeAgo::Yesterday => t("yesterday").to_string(),
+        time::TimeAgo::Days(n) => tn(n, "{n} day ago", "{n} days ago"),
+        time::TimeAgo::Date(secs) => {
+            let (y, m, d) = time::civil_from_unix(secs);
+            let month = tr_ctx(current(), "month", time::month_short_en(m));
+            fmt(tl!("{month} {day}, {year}"), &[("month", month), ("day", &d.to_string()), ("year", &y.to_string())])
+        }
+    }
+}
+
+/// Translate an absolute date ("Oct 8, 2026" → "8 окт. 2026") into the current language.
+pub(crate) fn date_text(secs: i64) -> String {
+    let (y, m, d) = time::civil_from_unix(secs);
+    let month = tr_ctx(current(), "month", time::month_short_en(m));
+    fmt(tl!("{month} {day}, {year}"), &[("month", month), ("day", &d.to_string()), ("year", &y.to_string())])
+}
 
 /// What the main button of an app does.
 enum Primary {
@@ -56,31 +80,33 @@ impl LauncherUi {
             // The ArtCraft wordmark exactly as supplied, in its own cell.
             let logo = vec2(14.0 * crate::icons::ARTCRAFT_LOGO_ASPECT, 14.0);
             let (cell, _) = ui.allocate_exact_size(vec2(logo.x + 40.0, h), Sense::hover());
-            egui::Image::new(crate::icons::artcraft_logo(t.dark)).alt_text("ArtCraft").paint_at(ui, Rect::from_center_size(cell.center(), logo));
+            egui::Image::new(crate::icons::artcraft_logo(t.dark)).alt_text(tl!("ArtCraft")).paint_at(ui, Rect::from_center_size(cell.center(), logo));
             widgets::rule(ui, h);
             ui.add_space(16.0);
-            widgets::tag(ui, "Launcher", t.invert_bg, t.invert_fg);
+            widgets::tag(ui, tl!("Launcher"), t.invert_bg, t.invert_fg);
             ui.add_space(12.0);
-            widgets::hud(ui, "Craft App Suite", t.muted);
+            widgets::hud(ui, tl!("Craft App Suite"), t.muted);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if bar == TitleBar::Custom {
                     widgets::window_buttons(ui, h);
                 }
-                if widgets::nav_icon(ui, "⚙", "Settings", h, false).clicked() {
+                if widgets::nav_icon(ui, "⚙", tl!("Settings"), h, false).clicked() {
                     self.dialog = Some(Dialog::Settings);
                 }
-                if widgets::nav_icon(ui, "⟳", "Check for updates", h, self.checking).clicked() {
+                if widgets::nav_icon(ui, "⟳", tl!("Check for updates"), h, self.checking).clicked() {
                     self.check_now();
                 }
                 ui.add_space(6.0);
-                if widgets::nav_link(ui, "Discord", "Join the ArtCraft community on Discord", h, false).clicked() {
+                if widgets::nav_link(ui, tl!("Discord"), tl!("Join the ArtCraft community on Discord"), h, false).clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(artcraft_launcher_core::catalog::DISCORD_URL));
                 }
                 ui.add_space(6.0);
                 widgets::rule(ui, h);
                 ui.add_space(6.0);
                 // Right to left: Table, then Grid, so they read Grid · Table.
-                for (mode, label, tip) in [(ViewMode::Table, "Table", "Show apps as a table"), (ViewMode::Grid, "Grid", "Show apps as cards")] {
+                for (mode, label, tip) in
+                    [(ViewMode::Table, tl!("Table"), tl!("Show apps as a table")), (ViewMode::Grid, tl!("Grid"), tl!("Show apps as cards"))]
+                {
                     if widgets::nav_link(ui, label, tip, h, self.settings.view == mode).clicked() {
                         self.settings.view = mode;
                     }
@@ -100,10 +126,10 @@ impl LauncherUi {
                 .inner_margin(egui::Margin::symmetric(16, 10))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        widgets::tag(ui, "Update", t.accent, Color32::WHITE);
+                        widgets::tag(ui, tl!("Update"), t.accent, Color32::WHITE);
                         ui.add_space(4.0);
                         ui.label(
-                            RichText::new(format!("ArtCraft Launcher {} is available.", r.version_label()))
+                            RichText::new(fmt(tl!("ArtCraft Launcher {version} is available."), &[("version", &r.version_label())]))
                                 .family(theme::medium())
                                 .color(t.ink_strong),
                         );
@@ -112,17 +138,20 @@ impl LauncherUi {
                                 let (fraction, caption) = match phase {
                                     JobPhase::Downloading { done, total } if total > 0 => (
                                         Some(done as f32 / total as f32),
-                                        format!("Downloading {} of {}", widgets::human_bytes(done), widgets::human_bytes(total)),
+                                        fmt(
+                                            tl!("Downloading {done} of {total}"),
+                                            &[("done", &widgets::human_bytes(done)), ("total", &widgets::human_bytes(total))],
+                                        ),
                                     ),
-                                    JobPhase::Downloading { .. } | JobPhase::Reconnecting { .. } => (None, "Downloading…".to_string()),
-                                    JobPhase::Verifying => (None, "Verifying…".to_string()),
-                                    JobPhase::Waiting => (None, "Waiting for other installs…".to_string()),
-                                    JobPhase::Installing | JobPhase::Removing => (None, "Installing, then restarting…".to_string()),
+                                    JobPhase::Downloading { .. } | JobPhase::Reconnecting { .. } => (None, tl!("Downloading…").to_string()),
+                                    JobPhase::Verifying => (None, tl!("Verifying…").to_string()),
+                                    JobPhase::Waiting => (None, tl!("Waiting for other installs…").to_string()),
+                                    JobPhase::Installing | JobPhase::Removing => (None, tl!("Installing, then restarting…").to_string()),
                                 };
                                 // Another app's install can hang on a password prompt: the wait can be called off.
                                 if phase == JobPhase::Waiting
-                                    && widgets::glyph_button(ui, widgets::Glyph::Close, "Cancel update")
-                                        .on_hover_text("Stop waiting; the update can be started again later")
+                                    && widgets::glyph_button(ui, widgets::Glyph::Close, tl!("Cancel update"))
+                                        .on_hover_text(tl!("Stop waiting; the update can be started again later"))
                                         .clicked()
                                 {
                                     self.send(Command::Cancel { app: artcraft_launcher_core::catalog::LAUNCHER_ID.to_string() });
@@ -130,24 +159,24 @@ impl LauncherUi {
                                 widgets::progress(ui, fraction, &caption, t.accent, 220.0);
                                 return;
                             }
-                            if widgets::glyph_button(ui, widgets::Glyph::Close, "Dismiss").clicked() {
+                            if widgets::glyph_button(ui, widgets::Glyph::Close, tl!("Dismiss")).clicked() {
                                 self.launcher_update = None;
                             }
                             if self.caps.self_update {
-                                if widgets::button(ui, "Update and restart", Kind::Primary, 0.0)
-                                    .on_hover_text("Downloads the new version, replaces this one and opens it again")
+                                if widgets::button(ui, tl!("Update and restart"), Kind::Primary, 0.0)
+                                    .on_hover_text(tl!("Downloads the new version, replaces this one and opens it again"))
                                     .clicked()
                                 {
                                     self.send(Command::UpdateLauncher);
                                 }
                             } else {
                                 let url = self.platform.and_then(|p| launcher_download(&r, p)).unwrap_or_else(|| r.html_url.clone());
-                                if widgets::button(ui, "Download", Kind::Primary, 0.0).clicked() {
+                                if widgets::button(ui, tl!("Download"), Kind::Primary, 0.0).clicked() {
                                     ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                                 }
                             }
                             ui.add_space(8.0);
-                            widgets::hud_link(ui, "What's new", &r.html_url);
+                            widgets::hud_link(ui, tl!("What's new"), &r.html_url);
                         });
                     });
                 });
@@ -157,10 +186,11 @@ impl LauncherUi {
         ui.horizontal(|ui| {
             let updates = self.count(Filter::Updates);
             let filters: Vec<(Filter, Cell<'_>)> = [
-                (Filter::All, "All", "Every Craft app", None),
-                (Filter::Installed, "Installed", "Apps on this computer", None),
-                (Filter::Updates, "Updates", "Installed apps with a newer version", Some(t.warn)),
-                (Filter::NotInstalled, "Not installed", "Apps you can install", None),
+                (Filter::All, tl!("All"), tl!("Every Craft app"), None),
+                // The tab names a group ("installed ones"); the status pill says "Installed".
+                (Filter::Installed, tr_ctx(current(), "filter", "Installed"), tl!("Apps on this computer"), None),
+                (Filter::Updates, tl!("Updates"), tl!("Installed apps with a newer version"), Some(t.warn)),
+                (Filter::NotInstalled, tl!("Not installed"), tl!("Apps you can install"), None),
             ]
             .into_iter()
             .filter(|(f, ..)| self.caps.manage_apps || *f == Filter::All)
@@ -169,7 +199,11 @@ impl LauncherUi {
             widgets::cells(ui, &mut self.settings.filter, &filters);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if self.caps.manage_apps && updates > 0 {
-                    let label = if updates == 1 { "Update 1 app".to_string() } else { format!("Update all ({updates})") };
+                    let label = if updates == 1 {
+                        tl!("Update 1 app").to_string()
+                    } else {
+                        fmt(tl!("Update all ({count})"), &[("count", &updates.to_string())])
+                    };
                     if widgets::button(ui, &label, Kind::Primary, 0.0).clicked() {
                         let ids: Vec<&str> = self
                             .entries
@@ -185,7 +219,7 @@ impl LauncherUi {
                 }
                 ui.add(
                     egui::TextEdit::singleline(&mut self.search)
-                        .hint_text("Search apps")
+                        .hint_text(tl!("Search apps"))
                         .desired_width(200.0)
                         .min_size(vec2(0.0, theme::CONTROL_H))
                         .vertical_align(egui::Align::Center)
@@ -211,7 +245,11 @@ impl LauncherUi {
                                 }
                             }
                         });
-                    widgets::hud(ui, "Sort", t.faint);
+                    // The caption only where it fits beside the filters (longer in some languages).
+                    let sort = tl!("Sort");
+                    if widgets::hud_galley(ui, sort, t.faint).size().x + ui.spacing().item_spacing.x <= ui.available_width() {
+                        widgets::hud(ui, sort, t.faint);
+                    }
                 }
             });
         });
@@ -226,11 +264,11 @@ impl LauncherUi {
             egui::Frame::new().fill(t.sunken).stroke(t.hairline()).inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                        if widgets::glyph_button(ui, widgets::Glyph::Close, "Dismiss").clicked() {
+                        if widgets::glyph_button(ui, widgets::Glyph::Close, tl!("Dismiss")).clicked() {
                             self.settings.dismissed_notices.insert(notice.id.clone());
                         }
                         if let Some(link) = &notice.link {
-                            widgets::hud_link(ui, "Learn more", link);
+                            widgets::hud_link(ui, tl!("Learn more"), link);
                         }
                         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                             ui.spacing_mut().item_spacing.y = 2.0;
@@ -253,25 +291,35 @@ impl LauncherUi {
         let now = self.backend.now();
         ui.horizontal_centered(|ui| {
             if self.checking {
-                widgets::hud(ui, "Checking for updates…", t.faint);
+                widgets::hud(ui, tl!("Checking for updates…"), t.faint);
             } else if let Some(at) = self.settings.last_check {
-                let using = self.sources_label().map(|s| format!(" · using {s}")).unwrap_or_default();
-                widgets::hud(ui, &format!("Checked {}{using}", time::format_ago(at, now)), t.faint);
+                let ago = ago_text(at, now);
+                let text = match self.sources_label() {
+                    Some(using) => fmt(tl!("Checked {ago} · using {sources}"), &[("ago", &ago), ("sources", &using)]),
+                    None => fmt(tl!("Checked {ago}"), &[("ago", &ago)]),
+                };
+                widgets::hud(ui, &text, t.faint);
             } else {
-                widgets::hud(ui, "Not checked yet", t.faint);
+                widgets::hud(ui, tl!("Not checked yet"), t.faint);
             }
             if let Some(until) = self.rate_limited_until.filter(|u| *u > now) {
                 ui.label(
-                    RichText::new(format!("· GitHub's hourly limit was reached; full details return in {} min", ((until - now) / 60).max(1)))
-                        .size(12.0)
-                        .color(t.warn),
+                    RichText::new(format!(
+                        "· {}",
+                        fmt(
+                            tl!("GitHub's hourly limit was reached; full details return in {min} min"),
+                            &[("min", &((until - now) / 60).max(1).to_string())]
+                        )
+                    ))
+                    .size(12.0)
+                    .color(t.warn),
                 );
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let label = match self.platform {
-                    Some(p) if self.caps.manage_apps => format!("Installing for {}", p.label()),
-                    Some(p) => format!("Downloads for {}", p.label()),
-                    None => "No downloads for this system".into(),
+                    Some(p) if self.caps.manage_apps => fmt(tl!("Installing for {platform}"), &[("platform", &p.label())]),
+                    Some(p) => fmt(tl!("Downloads for {platform}"), &[("platform", &p.label())]),
+                    None => tl!("No downloads for this system").into(),
                 };
                 widgets::hud(ui, &label, t.faint);
                 ui.add_space(16.0);
@@ -283,9 +331,9 @@ impl LauncherUi {
                 ui.add_space(12.0);
                 ui.spacing_mut().item_spacing.x = 16.0;
                 use artcraft_launcher_core::catalog::{DISCORD_URL, GITHUB_URL, WEBSITE_URL};
-                widgets::hud_link(ui, "Discord", DISCORD_URL);
-                widgets::hud_link(ui, "GitHub", GITHUB_URL);
-                widgets::hud_link(ui, "Website", WEBSITE_URL);
+                widgets::hud_link(ui, tl!("Discord"), DISCORD_URL);
+                widgets::hud_link(ui, tl!("GitHub"), GITHUB_URL);
+                widgets::hud_link(ui, tl!("Website"), WEBSITE_URL);
             });
         });
     }
@@ -300,7 +348,7 @@ impl LauncherUi {
         // In suite order, split into the classic apps and the new ones.
         let grouped = self.settings.sort == SortKey::Suite && self.settings.filter == Filter::All && self.search.trim().is_empty();
         let sections: Vec<Section> = if grouped {
-            [(AppGroup::Classic, "01", "Classic apps"), (AppGroup::New, "02", "New apps")]
+            [(AppGroup::Classic, "01", tl!("Classic apps")), (AppGroup::New, "02", tl!("New apps"))]
                 .iter()
                 .map(|(g, index, title)| {
                     let list = ids.iter().copied().filter(|id| self.entry(id).is_some_and(|e| e.app.group == *g)).collect();
@@ -320,7 +368,7 @@ impl LauncherUi {
                 ui.horizontal(|ui| {
                     widgets::eyebrow(ui, index, title);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        widgets::hud(ui, &format!("{} apps", list.len()), t.faint);
+                        widgets::hud(ui, &tn(list.len() as u64, "{n} app", "{n} apps"), t.faint);
                     });
                 });
                 ui.add_space(10.0);
@@ -362,9 +410,9 @@ impl LauncherUi {
             widgets::tag(&mut strip_ui, &number, app_color, Color32::BLACK);
             strip_ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 16.0;
-                widgets::hud_link(ui, "GitHub", &app.repo_url());
+                widgets::hud_link(ui, tl!("GitHub"), &app.repo_url());
                 if let Some(site) = app.website() {
-                    widgets::hud_link(ui, "Website", &site);
+                    widgets::hud_link(ui, tl!("Website"), &site);
                 }
             });
         }
@@ -382,7 +430,7 @@ impl LauncherUi {
             // The slot is as tall as the text beside it when that is taller, so the two share a centre.
             let block = lines_height(ui, &[&name, &tagline, &like], GAP);
             let (slot, icon_response) = ui.allocate_exact_size(vec2(ICON, block.max(ICON)), Sense::hover());
-            icon_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, format!("{} icon", app.name)));
+            icon_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, fmt(tl!("{name} icon"), &[("name", app.name)])));
             // The icon rises a little on hover, over a soft drop shadow (the site's only shadow).
             let icon_rect = Rect::from_center_size(slot.center(), vec2(ICON, ICON)).translate(vec2(0.0, -4.0 * lift));
             ui.painter().add(
@@ -399,19 +447,22 @@ impl LauncherUi {
                 ui.horizontal(|ui| {
                     widgets::wordmark(ui, app, 22.0);
                     if app.group == AppGroup::New {
-                        widgets::badge(ui, "New", t.app_ink(app));
+                        widgets::badge(ui, tl!("New"), t.app_ink(app));
                     }
                 });
-                ui.add(egui::Label::new(RichText::new(app.tagline).font(tagline.clone()).color(t.muted)).truncate());
-                ui.add(egui::Label::new(RichText::new(format!("Like {}", app.inspired_by())).font(like.clone()).color(t.faint)).truncate());
+                ui.add(egui::Label::new(RichText::new(tr_ctx(current(), app.id, app.tagline)).font(tagline.clone()).color(t.muted)).truncate());
+                ui.add(
+                    egui::Label::new(RichText::new(fmt(tl!("Like {name}"), &[("name", &app.inspired_by())])).font(like.clone()).color(t.faint))
+                        .truncate(),
+                );
             });
         });
         ui.add_space(14.0);
         ui.horizontal(|ui| {
             let (text, tone) = model::entry_status_text(&entry, &status, self.caps.manage_apps);
-            let r = widgets::badge(ui, text, widgets::tone_color(&t, tone));
+            let r = widgets::badge(ui, &text, widgets::tone_color(&t, tone));
             if let Some(f) = entry.failure() {
-                r.on_hover_text(format!("Couldn't check for updates: {f}"));
+                r.on_hover_text(fmt(tl!("Couldn't check for updates: {f}"), &[("f", f)]));
             }
         });
         ui.add_space(4.0);
@@ -456,12 +507,12 @@ impl LauncherUi {
                 .column(Column::exact(206.0))
                 .header(42.0, |mut header| {
                     for (key, label) in [
-                        (Some(SortKey::Name), "App"),
-                        (Some(SortKey::InspiredBy), "Inspired by"),
-                        (Some(SortKey::Status), "Status"),
-                        (Some(SortKey::Installed), "Installed"),
-                        (Some(SortKey::Latest), "Latest"),
-                        (Some(SortKey::Released), "Released"),
+                        (Some(SortKey::Name), tl!("App")),
+                        (Some(SortKey::InspiredBy), tl!("Inspired by")),
+                        (Some(SortKey::Status), tl!("Status")),
+                        (Some(SortKey::Installed), tr_ctx(current(), "column", "Installed")),
+                        (Some(SortKey::Latest), tr_ctx(current(), "column", "Latest")),
+                        (Some(SortKey::Released), tr_ctx(current(), "column", "Released")),
                         (None, ""),
                     ] {
                         header.col(|ui| {
@@ -470,7 +521,7 @@ impl LauncherUi {
                             }
                             let Some(k) = key else { return };
                             let active = k == self.settings.sort;
-                            let tip = if active { "Click to reverse the order" } else { "Click to sort by this column" };
+                            let tip = if active { tl!("Click to reverse the order") } else { tl!("Click to sort by this column") };
                             // Measure first so the whole header cell (label + arrow) is the target.
                             let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click());
                             let hovered = resp.hovered();
@@ -523,7 +574,12 @@ impl LauncherUi {
                                     let block = title_h + GAP + tagline_h;
                                     ui.add_space(((ui.available_height() - block) / 2.0).max(0.0));
                                     widgets::wordmark(ui, entry.app, TITLE_SIZE);
-                                    ui.add(egui::Label::new(RichText::new(entry.app.tagline).size(TAGLINE_SIZE).color(t.muted)).truncate());
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(tr_ctx(current(), entry.app.id, entry.app.tagline)).size(TAGLINE_SIZE).color(t.muted),
+                                        )
+                                        .truncate(),
+                                    );
                                 });
                             });
                             row.col(|ui| {
@@ -531,9 +587,9 @@ impl LauncherUi {
                             });
                             row.col(|ui| {
                                 let (text, tone) = model::entry_status_text(&entry, &status, self.caps.manage_apps);
-                                let r = widgets::badge(ui, text, widgets::tone_color(&t, tone));
+                                let r = widgets::badge(ui, &text, widgets::tone_color(&t, tone));
                                 if let Some(f) = entry.failure() {
-                                    r.on_hover_text(format!("Couldn't check for updates: {f}"));
+                                    r.on_hover_text(fmt(tl!("Couldn't check for updates: {f}"), &[("f", f)]));
                                 }
                             });
                             row.col(|ui| {
@@ -549,9 +605,9 @@ impl LauncherUi {
                             });
                             row.col(|ui| {
                                 let when = entry.release().and_then(|r| r.published_at);
-                                let r = ui.label(RichText::new(when.map_or_else(|| "—".into(), time::format_date)).color(t.muted));
+                                let r = ui.label(RichText::new(when.map_or_else(|| "—".into(), date_text)).color(t.muted));
                                 if let Some(w) = when {
-                                    r.on_hover_text(time::format_ago(w, now));
+                                    r.on_hover_text(ago_text(w, now));
                                 }
                             });
                             row.col(|ui| self.actions(ui, &entry, &status, 204.0));
@@ -586,21 +642,23 @@ impl LauncherUi {
                 pick_asset(r, &stems, p, p.download_kinds()).map(|(a, _)| a.url.clone())
             });
             return match (status, url) {
-                (AppStatus::NoRelease, _) => Primary::Unavailable("Coming soon"),
-                (AppStatus::Checking, _) => Primary::Unavailable("Checking…"),
+                (AppStatus::NoRelease, _) => Primary::Unavailable(tl!("Coming soon")),
+                (AppStatus::Checking, _) => Primary::Unavailable(tl!("Checking…")),
                 (_, Some(url)) => Primary::Download(url),
-                (_, None) => Primary::Unavailable("Not available"),
+                (_, None) => Primary::Unavailable(tl!("Not available")),
             };
         }
         match status {
-            AppStatus::Available if entry.ready => Primary::Retry("Retry install".into()),
-            AppStatus::UpdateAvailable if entry.ready => Primary::Retry(format!("Retry update to {}", entry.latest_label().unwrap_or_default())),
+            AppStatus::Available if entry.ready => Primary::Retry(tl!("Retry install").into()),
+            AppStatus::UpdateAvailable if entry.ready => {
+                Primary::Retry(fmt(tl!("Retry update to {version}"), &[("version", &entry.latest_label().unwrap_or_default())]))
+            }
             AppStatus::Available => Primary::Install,
             AppStatus::UpdateAvailable => Primary::Update(entry.latest_label().unwrap_or_default()),
             AppStatus::UpToDate | AppStatus::Installed => Primary::Open,
-            AppStatus::Checking => Primary::Unavailable("Checking…"),
-            AppStatus::NoRelease => Primary::Unavailable("Coming soon"),
-            AppStatus::Unavailable => Primary::Unavailable(if entry.failure().is_some() { "Offline" } else { "Not available" }),
+            AppStatus::Checking => Primary::Unavailable(tl!("Checking…")),
+            AppStatus::NoRelease => Primary::Unavailable(tl!("Coming soon")),
+            AppStatus::Unavailable => Primary::Unavailable(if entry.failure().is_some() { tl!("Offline") } else { tl!("Not available") }),
         }
     }
 
@@ -616,7 +674,11 @@ impl LauncherUi {
             let bar_w = (width - 2.0 * (theme::CONTROL_H + gap) - 4.0).max(100.0);
             let short = bar_w < 200.0;
             let amount = |done: u64, total: u64| {
-                if total > 0 { format!("{} of {}", widgets::human_bytes(done), widgets::human_bytes(total)) } else { widgets::human_bytes(done) }
+                if total > 0 {
+                    fmt(tl!("{done} of {total}"), &[("done", &widgets::human_bytes(done)), ("total", &widgets::human_bytes(total))])
+                } else {
+                    widgets::human_bytes(done)
+                }
             };
             let (fraction, caption, color) = match phase {
                 JobPhase::Downloading { done, total } => {
@@ -624,35 +686,37 @@ impl LauncherUi {
                     let pct = f.map(|f| format!(" · {:.0}%", f * 100.0)).unwrap_or_default();
                     let caption = if bar_w < 150.0 {
                         match f {
-                            Some(f) => format!("{:.0}% of {}", f * 100.0, widgets::human_bytes(total)),
+                            Some(f) => {
+                                fmt(tl!("{done} of {total}"), &[("done", &format!("{:.0}%", f * 100.0)), ("total", &widgets::human_bytes(total))])
+                            }
                             None => widgets::human_bytes(done),
                         }
                     } else if short {
                         format!("{}{pct}", amount(done, total))
                     } else {
-                        format!("Downloading {}{pct}", amount(done, total))
+                        format!("{} {}{pct}", tl!("Downloading"), amount(done, total))
                     };
                     (f, caption, rgb(entry.app.color))
                 }
                 JobPhase::Reconnecting { done, total } => {
                     let f = (total > 0).then(|| done as f32 / total as f32);
-                    (f, if short { "Reconnecting…".into() } else { format!("Reconnecting… {}", amount(done, total)) }, t.warn)
+                    (f, if short { tl!("Reconnecting…").into() } else { format!("{} {}", tl!("Reconnecting…"), amount(done, total)) }, t.warn)
                 }
-                JobPhase::Verifying => (None, "Verifying checksum…".into(), rgb(entry.app.color)),
-                JobPhase::Waiting => (None, "Waiting for another app…".into(), rgb(entry.app.color)),
-                JobPhase::Installing => (None, "Installing…".into(), rgb(entry.app.color)),
-                JobPhase::Removing => (None, "Removing…".into(), rgb(entry.app.color)),
+                JobPhase::Verifying => (None, tl!("Verifying checksum…").into(), rgb(entry.app.color)),
+                JobPhase::Waiting => (None, tl!("Waiting for another app…").into(), rgb(entry.app.color)),
+                JobPhase::Installing => (None, tl!("Installing…").into(), rgb(entry.app.color)),
+                JobPhase::Removing => (None, tl!("Removing…").into(), rgb(entry.app.color)),
             };
             let downloading = matches!(phase, JobPhase::Downloading { .. } | JobPhase::Reconnecting { .. });
             // A job waiting for the installer hasn't started it yet, so it can still be called off.
             let waiting = phase == JobPhase::Waiting;
             // Waiting has one square button beside the bar, like the menu otherwise.
             widgets::progress(ui, fraction, &caption, color, if downloading { bar_w } else { main_w });
-            if downloading && widgets::glyph_button(ui, widgets::Glyph::Pause, "Pause download").clicked() {
+            if downloading && widgets::glyph_button(ui, widgets::Glyph::Pause, tl!("Pause download")).clicked() {
                 self.send(Command::Pause { app: id.clone() });
             }
             if (downloading || waiting)
-                && widgets::glyph_button(ui, widgets::Glyph::Close, if waiting { "Cancel" } else { "Cancel download" }).clicked()
+                && widgets::glyph_button(ui, widgets::Glyph::Close, if waiting { tl!("Cancel") } else { tl!("Cancel download") }).clicked()
             {
                 self.send(Command::Cancel { app: id });
             }
@@ -664,22 +728,22 @@ impl LauncherUi {
             let pct = if p.total > 0 { format!(" · {:.0}%", p.done as f32 / p.total as f32 * 100.0) } else { String::new() };
             // Resume, then discard and the menu (two squares).
             let resume_w = (width - 2.0 * (theme::CONTROL_H + gap)).max(90.0);
-            // Narrow (the table): just "Resume"; the tooltip says how far it got.
+            // Narrow (the table): just tl!("Resume"); the tooltip says how far it got.
             let label = match resume_w {
-                w if w < 150.0 => "Resume".to_string(),
-                w if w < 220.0 => format!("Resume{pct}"),
-                _ => format!("Resume download{pct}"),
+                w if w < 150.0 => tl!("Resume").to_string(),
+                w if w < 220.0 => format!("{}{pct}", tl!("Resume")),
+                _ => format!("{}{pct}", tl!("Resume download")),
             };
             let resp = widgets::button(ui, &label, Kind::Primary, resume_w);
             let tip = if p.total > 0 {
-                format!("{} of {} downloaded", widgets::human_bytes(p.done), widgets::human_bytes(p.total))
+                fmt(tl!("{done} of {total} downloaded"), &[("done", &widgets::human_bytes(p.done)), ("total", &widgets::human_bytes(p.total))])
             } else {
-                format!("{} downloaded", widgets::human_bytes(p.done))
+                fmt(tl!("{done} downloaded"), &[("done", &widgets::human_bytes(p.done))])
             };
             if resp.on_hover_text(tip).clicked() {
                 self.send(Command::Install { app: id.clone() });
             }
-            if widgets::glyph_button(ui, widgets::Glyph::Close, "Discard download").clicked() {
+            if widgets::glyph_button(ui, widgets::Glyph::Close, tl!("Discard download")).clicked() {
                 self.send(Command::Cancel { app: id.clone() });
             }
             self.menu(ui, entry, status);
@@ -687,30 +751,30 @@ impl LauncherUi {
         }
         match self.primary_action(entry, status) {
             Primary::Install => {
-                if widgets::button(ui, "Install", Kind::Primary, main_w).clicked() {
+                if widgets::button(ui, tl!("Install"), Kind::Primary, main_w).clicked() {
                     self.send(Command::Install { app: id.clone() });
                 }
             }
             Primary::Retry(label) => {
-                let tip = "The download is still here. It's checked again, then installed.";
+                let tip = tl!("The download is still here. It's checked again, then installed.");
                 if widgets::button(ui, &label, Kind::Primary, main_w).on_hover_text(tip).clicked() {
                     self.send(Command::Install { app: id.clone() });
                 }
             }
             Primary::Update(v) => {
-                if widgets::button(ui, &format!("Update to {v}"), Kind::Primary, main_w).clicked() {
+                if widgets::button(ui, &fmt(tl!("Update to {v}"), &[("v", &v)]), Kind::Primary, main_w).clicked() {
                     self.send(Command::Install { app: id.clone() });
                 }
             }
             Primary::Open => {
-                if widgets::button(ui, "Open", Kind::Secondary, main_w).clicked() {
+                if widgets::button(ui, tl!("Open"), Kind::Secondary, main_w).clicked() {
                     self.send(Command::Launch { app: id.clone() });
                 }
             }
             Primary::Download(url) => {
                 let label = match self.platform {
-                    Some(p) => format!("Download for {}", p.os.label()),
-                    None => "Download".into(),
+                    Some(p) => fmt(tl!("Download for {os}"), &[("os", p.os.label())]),
+                    None => tl!("Download").into(),
                 };
                 if widgets::button(ui, &label, Kind::Primary, main_w).clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(url));
@@ -728,33 +792,33 @@ impl LauncherUi {
         let manage = self.caps.manage_apps;
         let reveal = self.caps.reveal_label;
         widgets::more_menu(ui, |ui| {
-            if entry.release().is_some() && ui.button("Release notes").clicked() {
+            if entry.release().is_some() && ui.button(tl!("Release notes")).clicked() {
                 self.dialog = Some(Dialog::Notes(id.clone()));
                 ui.close();
             }
             // Only where Install would download: an up-to-date app would be reinstalled.
             let can_download_again =
                 manage && entry.ready && entry.paused.is_none() && matches!(status, AppStatus::Available | AppStatus::UpdateAvailable);
-            if can_download_again && ui.button("Download again").clicked() {
+            if can_download_again && ui.button(tl!("Download again")).clicked() {
                 self.send(Command::Cancel { app: id.clone() });
                 self.send(Command::Install { app: id.clone() });
                 ui.close();
             }
             if manage && status.is_installed() {
-                if ui.button("Open").clicked() {
+                if ui.button(tl!("Open")).clicked() {
                     self.send(Command::Launch { app: id.clone() });
                     ui.close();
                 }
-                if ui.button(reveal).clicked() {
+                if ui.button(t(reveal)).clicked() {
                     self.send(Command::Reveal { app: id.clone() });
                     ui.close();
                 }
-                if *status == AppStatus::UpToDate && ui.button("Reinstall").clicked() {
+                if *status == AppStatus::UpToDate && ui.button(tl!("Reinstall")).clicked() {
                     self.send(Command::Install { app: id.clone() });
                     ui.close();
                 }
                 ui.separator();
-                if ui.button(RichText::new("Uninstall…").color(Tokens::get(ui.ctx()).bad)).clicked() {
+                if ui.button(RichText::new(tl!("Uninstall…")).color(Tokens::get(ui.ctx()).bad)).clicked() {
                     self.dialog = Some(Dialog::ConfirmUninstall(id.clone()));
                     ui.close();
                 }
@@ -765,7 +829,8 @@ impl LauncherUi {
                     .download_kinds()
                     .iter()
                     .filter_map(|k| {
-                        pick_asset(r, &stems, p, &[*k]).map(|(a, _)| (format!("{} · {}", k.label(), widgets::human_bytes(a.size)), a.url.clone()))
+                        pick_asset(r, &stems, p, &[*k])
+                            .map(|(a, _)| (format!("{} · {}", crate::i18n::t(k.label()), widgets::human_bytes(a.size)), a.url.clone()))
                     })
                     .collect();
                 if !options.is_empty() {
@@ -786,40 +851,42 @@ impl LauncherUi {
                 }
             };
             match entry.app.website() {
-                Some(site) => link(ui, "Website", site),
+                Some(site) => link(ui, tl!("Website"), site),
                 None => {
-                    ui.add_enabled(false, egui::Button::new("Website (coming soon)"));
+                    ui.add_enabled(false, egui::Button::new(tl!("Website (coming soon)")));
                 }
             }
-            link(ui, "GitHub repository", entry.app.repo_url());
-            link(ui, "All releases", entry.app.releases_url());
+            link(ui, tl!("GitHub repository"), entry.app.repo_url());
+            link(ui, tl!("All releases"), entry.app.releases_url());
         });
     }
 }
 
 fn sort_label(k: SortKey) -> &'static str {
     match k {
-        SortKey::Suite => "Suite order",
-        SortKey::Name => "Name",
-        SortKey::InspiredBy => "Inspired by",
-        SortKey::Status => "Status",
-        SortKey::Installed => "Installed version",
-        SortKey::Latest => "Latest version",
-        SortKey::Released => "Newest release",
+        SortKey::Suite => tl!("Suite order"),
+        SortKey::Name => tl!("Name"),
+        SortKey::InspiredBy => tl!("Inspired by"),
+        SortKey::Status => tl!("Status"),
+        SortKey::Installed => tl!("Installed version"),
+        SortKey::Latest => tl!("Latest version"),
+        SortKey::Released => tl!("Newest release"),
     }
 }
 
 /// "0.4.1 installed → 0.5.0 released · Oct 8, 2026" and friends.
 fn version_line(e: &AppEntry, status: &AppStatus) -> String {
-    let released = e.release().and_then(|r| r.published_at).map(|at| format!(" · {}", time::format_date(at))).unwrap_or_default();
+    let released = e.release().and_then(|r| r.published_at).map(|at| format!(" · {}", date_text(at))).unwrap_or_default();
     match (status, e.installed_label(), e.latest_label()) {
-        (AppStatus::UpdateAvailable, Some(i), Some(l)) => format!("{i} installed → {l} released{released}"),
-        (AppStatus::UpToDate, Some(i), _) => format!("Version {i}{released}"),
-        (_, Some(i), Some(l)) => format!("{i} installed · latest {l}"),
-        (_, Some(i), None) => format!("Version {i} installed"),
-        (_, None, Some(l)) => format!("Version {l}{released}"),
-        (AppStatus::NoRelease, None, None) => "No release published yet".into(),
-        _ => " ".into(),
+        (AppStatus::UpdateAvailable, Some(i), Some(l)) => {
+            format!("{}{released}", fmt(tl!("{version} installed → {latest} released"), &[("version", i.as_str()), ("latest", l.as_str())]))
+        }
+        (AppStatus::UpToDate, Some(i), _) => format!("{}{released}", fmt(tl!("Version {version}"), &[("version", i.as_str())])),
+        (_, Some(i), Some(l)) => fmt(tl!("{installed} installed · latest {latest}"), &[("installed", i.as_str()), ("latest", l.as_str())]),
+        (_, Some(i), None) => fmt(tl!("Version {version} installed"), &[("version", i.as_str())]),
+        (_, None, Some(l)) => format!("{}{released}", fmt(tl!("Version {latest}"), &[("latest", l.as_str())])),
+        (AppStatus::NoRelease, None, None) => tl!("No release published yet").to_string(),
+        _ => " ".to_string(),
     }
 }
 
